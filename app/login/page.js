@@ -85,7 +85,23 @@ export default function LoginPage() {
           </div>
 
           <div className={styles.formGroup}>
-            <label className={styles.label} htmlFor="password">Password</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <label className={styles.label} style={{ marginBottom: 0 }} htmlFor="password">Password</label>
+              <button 
+                type="button" 
+                onClick={() => router.push('/forgot-password')}
+                style={{ 
+                  background: 'none', 
+                  border: 'none', 
+                  color: '#a855f7', 
+                  fontSize: '0.85rem', 
+                  cursor: 'pointer',
+                  padding: 0
+                }}
+              >
+                Forgot Password?
+              </button>
+            </div>
             <input
               id="password"
               type="password"
