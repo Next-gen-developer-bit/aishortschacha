@@ -1,66 +1,228 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
 import styles from "./page.module.css";
 
+const STYLES = [
+  { id: "horror", name: "Horror", icon: "👻" },
+  { id: "funny", name: "Funny", icon: "😂" },
+  { id: "historical", name: "Historical", icon: "🏛️" },
+  { id: "magical", name: "Magical", icon: "✨" },
+];
+
+
+
 export default function Home() {
+  const [credits, setCredits] = useState(100);
+  const [script, setScript] = useState("");
+  const [selectedStyle, setSelectedStyle] = useState("");
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [message, setMessage] = useState({ text: "", type: "" });
+  const [videoUrl, setVideoUrl] = useState(null);
+  
+  const router = useRouter();
+  const supabase = createClient();
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("credits")
+          .eq("id", user.id)
+          .single();
+          
+        if (data) {
+          setCredits(data.credits);
+        }
+      }
+    };
+    fetchProfile();
+  }, [supabase]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    router.push("/login");
+  };
+
+  const COST_PER_GENERATION = 10;
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMessage({ text: "", type: "" });
+    setVideoUrl(null);
+
+    if (!script.trim()) {
+      setMessage({ text: "Please enter a script or prompt.", type: "error" });
+      return;
+    }
+    if (!selectedStyle) {
+      setMessage({ text: "Please select a style.", type: "error" });
+      return;
+    }
+    if (credits <= 0 || credits < COST_PER_GENERATION) {
+      setMessage({ text: "Please contact the admin to top up your credits.", type: "error" });
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Simulate network request to webhook
+      const payload = {
+        script,
+        style: selectedStyle,
+        timestamp: new Date().toISOString()
+      };
+
+      // Send network request via local proxy to avoid CORS completely
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) throw new Error("Webhook submission failed");
+
+      const contentType = response.headers.get("content-type") || "";
+
+      if (contentType.includes("application/json")) {
+        const data = await response.json();
+        if (data.url) {
+          setVideoUrl(data.url);
+        } else if (data.data?.url) {
+          setVideoUrl(data.data.url);
+        } else {
+          throw new Error("No video URL returned in JSON");
+        }
+      } else {
+        const rawBlob = await response.blob();
+        // Force blob to be treated as a video/mp4 to fix the browser black screen issue
+        const videoBlob = new Blob([rawBlob], { type: "video/mp4" });
+        const url = URL.createObjectURL(videoBlob);
+        setVideoUrl(url);
+      }
+
+      // Don't deduct locally. Re-fetch from DB or let the backend's response tell us the new balance?
+      // Actually, we can deduct locally for instant UI update:
+      setCredits(prev => prev - COST_PER_GENERATION);
+      setMessage({ text: "Success! Your short is ready.", type: "success" });
+      setScript("");
+      setSelectedStyle("");
+
+    } catch (error) {
+      console.error(error);
+      setMessage({ text: "Failed to connect to generation server.", type: "error" });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.js file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className={styles.container}>
+      <header className={styles.header}>
+        <div className={styles.logo}>AI Shorts Gen</div>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <div className={styles.creditBadge}>
+            <span className={styles.creditIcon}>🪙</span>
+            <span>{credits} Credits</span>
+          </div>
+          <button 
+            onClick={handleLogout} 
+            style={{
+              background: 'transparent', 
+              color: '#ef4444', 
+              border: '1px solid #ef4444', 
+              padding: '0.5rem 1rem', 
+              borderRadius: '8px', 
+              cursor: 'pointer'
+            }}
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            Log Out
+          </button>
         </div>
-      </main>
-    </div>
+      </header>
+
+      <h1 className={styles.title}>Bring Your Ideas to Life</h1>
+      <p className={styles.subtitle}>
+        Generate stunning AI shorts from text instantly. Choose your style and watch the magic happen.
+      </p>
+
+      <form className={styles.formCard} onSubmit={handleSubmit}>
+        <div className={styles.formGroup}>
+          <label className={styles.label} htmlFor="script">
+            1. Enter your script or prompt
+          </label>
+          <textarea
+            id="script"
+            className={styles.textarea}
+            placeholder="A magical forest where trees whisper ancient secrets..."
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            disabled={isLoading}
+          />
+        </div>
+
+        <div className={styles.formGroup}>
+          <label className={styles.label}>2. Choose a style</label>
+          <div className={styles.grid}>
+            {STYLES.map((style) => (
+              <div
+                key={style.id}
+                className={`${styles.selectableCard} ${selectedStyle === style.id ? styles.selected : ""}`}
+                onClick={() => !isLoading && setSelectedStyle(style.id)}
+              >
+                <span className={styles.cardIcon}>{style.icon}</span>
+                <span className={styles.cardName}>{style.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+
+
+        <div className={styles.submitWrapper}>
+          <button 
+            type="submit" 
+            className={styles.submitBtn}
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <>
+                <div className={styles.spinner}></div>
+                Generating...
+              </>
+            ) : (
+              <>
+                ✨ Generate Short
+                <span className={styles.deductionText}>-{COST_PER_GENERATION} credits</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {message.text && (
+          <div className={`${styles.message} ${styles[message.type]}`}>
+            {message.text}
+          </div>
+        )}
+      </form>
+
+      {videoUrl && (
+        <div className={styles.videoSection}>
+          <h2 className={styles.videoTitle}>Your Generated Short</h2>
+          <div className={styles.videoContainer}>
+            <video src={videoUrl} controls className={styles.videoPlayer} autoPlay loop playsInline />
+            <a href={videoUrl} download="ai_short.mp4" className={styles.downloadBtn}>
+              ⬇️ Download Video
+            </a>
+          </div>
+        </div>
+      )}
+    </main>
   );
 }
