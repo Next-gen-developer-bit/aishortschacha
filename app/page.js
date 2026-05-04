@@ -22,6 +22,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const [videoUrl, setVideoUrl] = useState(null);
+  const [pollingJobId, setPollingJobId] = useState(null);
   
   const router = useRouter();
   const supabase = createClient();
@@ -43,6 +44,44 @@ export default function Home() {
     };
     fetchProfile();
   }, [supabase]);
+
+  useEffect(() => {
+    let intervalId;
+    if (pollingJobId) {
+      intervalId = setInterval(async () => {
+        const { data, error } = await supabase
+          .from("video_generations")
+          .select("status, video_url")
+          .eq("id", pollingJobId)
+          .single();
+
+        if (data) {
+          if (data.status === "completed" && data.video_url) {
+            setVideoUrl(data.video_url);
+            setMessage({ text: "Success! Your short is ready.", type: "success" });
+            setIsLoading(false);
+            setPollingJobId(null);
+            setScript("");
+            setSelectedStyle("");
+          } else if (data.status === "failed") {
+            setMessage({ text: "Generation failed. Credits refunded.", type: "error" });
+            setIsLoading(false);
+            setPollingJobId(null);
+            // Re-fetch credits
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              const { data: profile } = await supabase.from("profiles").select("credits").eq("id", user.id).single();
+              if (profile) setCredits(profile.credits);
+            }
+          }
+        }
+      }, 3000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [pollingJobId, supabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -86,38 +125,26 @@ export default function Home() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Webhook submission failed");
-
-      const contentType = response.headers.get("content-type") || "";
-
-      if (contentType.includes("application/json")) {
-        const data = await response.json();
-        if (data.url) {
-          setVideoUrl(data.url);
-        } else if (data.data?.url) {
-          setVideoUrl(data.data.url);
-        } else {
-          throw new Error("No video URL returned in JSON");
-        }
-      } else {
-        const rawBlob = await response.blob();
-        // Force blob to be treated as a video/mp4 to fix the browser black screen issue
-        const videoBlob = new Blob([rawBlob], { type: "video/mp4" });
-        const url = URL.createObjectURL(videoBlob);
-        setVideoUrl(url);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.error || "Webhook submission failed");
       }
 
-      // Don't deduct locally. Re-fetch from DB or let the backend's response tell us the new balance?
-      // Actually, we can deduct locally for instant UI update:
-      setCredits(prev => prev - COST_PER_GENERATION);
-      setMessage({ text: "Success! Your short is ready.", type: "success" });
-      setScript("");
-      setSelectedStyle("");
+      const data = await response.json();
+      
+      if (data.job_id) {
+        setPollingJobId(data.job_id);
+        setMessage({ text: "Processing video... This may take a few minutes.", type: "success" });
+        // Deduct locally for instant UI update
+        setCredits(prev => prev - COST_PER_GENERATION);
+        // Note: isLoading stays true during polling
+      } else {
+        throw new Error("No job ID returned");
+      }
 
     } catch (error) {
       console.error(error);
-      setMessage({ text: "Failed to connect to generation server.", type: "error" });
-    } finally {
+      setMessage({ text: error.message || "Failed to connect to generation server.", type: "error" });
       setIsLoading(false);
     }
   };
