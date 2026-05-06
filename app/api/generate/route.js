@@ -62,29 +62,44 @@ export async function POST(request) {
       return NextResponse.json({ error: "Failed to create generation job" }, { status: 500 });
     }
 
-    // Call the n8n webhook from the server
+    // Call the n8n webhook from the server (fire-and-forget with timeout)
     const n8nPayload = {
       ...body,
       job_id: job.id, // Pass job_id to n8n so it knows which record to update
       user_id: user.id
     };
 
-    const n8nResponse = await fetch("https://babbudev123321.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(n8nPayload),
-    });
+    // Use a short timeout so Vercel doesn't kill the function
+    // n8n will process the job in the background regardless
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
-    if (!n8nResponse.ok) {
-      // Refund credits if n8n fails to accept the request
-      await serviceSupabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
-      await serviceSupabase.from('video_generations').update({ status: 'failed' }).eq('id', job.id);
-      return NextResponse.json({ error: "Failed from n8n" }, { status: n8nResponse.status });
+    try {
+      const n8nResponse = await fetch("https://babbudev123321.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(n8nPayload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!n8nResponse.ok) {
+        // Refund credits if n8n explicitly rejects the request
+        await serviceSupabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
+        await serviceSupabase.from('video_generations').update({ status: 'failed' }).eq('id', job.id);
+        return NextResponse.json({ error: "Failed from n8n" }, { status: n8nResponse.status });
+      }
+    } catch (fetchError) {
+      clearTimeout(timeout);
+      // Timeout or network error — n8n likely still received the request
+      // (we can see executions running in n8n even when Vercel times out)
+      // Don't fail — the job is already in the DB and n8n will process it
+      console.log("n8n fetch timed out or errored, but job was created:", fetchError.message);
     }
 
-    // Immediately return the job ID so the frontend can start polling
+    // Always return the job ID so the frontend can start polling
     return NextResponse.json({ success: true, job_id: job.id, status: 'processing' });
   } catch (error) {
     console.error("API proxy error:", error);
