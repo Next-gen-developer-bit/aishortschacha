@@ -41,7 +41,7 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { script, style, timestamp } = body;
+    const { script, style, timestamp, reference_image } = body;
 
     // Create a new video generation job
     const { data: job, error: jobError } = await serviceSupabase

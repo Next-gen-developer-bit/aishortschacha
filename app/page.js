@@ -18,6 +18,9 @@ export default function Home() {
   const [credits, setCredits] = useState(100);
   const [script, setScript] = useState("");
   const [selectedStyle, setSelectedStyle] = useState("");
+  const [referenceImage, setReferenceImage] = useState(null);
+  const [referenceImagePreview, setReferenceImagePreview] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
@@ -89,6 +92,37 @@ export default function Home() {
   };
 
   const COST_PER_GENERATION = 10;
+  const MAX_IMAGE_SIZE = 3 * 1024 * 1024; // 3MB (Vercel body limit is 4.5MB)
+
+  const handleImageSelect = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setMessage({ text: 'Please upload an image file (PNG, JPG, WEBP).', type: 'error' });
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE) {
+      setMessage({ text: 'Image must be under 3MB.', type: 'error' });
+      return;
+    }
+    setReferenceImagePreview(URL.createObjectURL(file));
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setReferenceImage(reader.result); // base64 data URL
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleImageDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    handleImageSelect(file);
+  };
+
+  const removeImage = () => {
+    setReferenceImage(null);
+    setReferenceImagePreview(null);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -111,11 +145,11 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      // Simulate network request to webhook
       const payload = {
         script,
         style: selectedStyle,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        ...(referenceImage && { reference_image: referenceImage })
       };
 
       // Send network request via local proxy to avoid CORS completely
@@ -135,8 +169,8 @@ export default function Home() {
       if (data.job_id) {
         setPollingJobId(data.job_id);
         setMessage({ text: "Processing video... This may take a few minutes.", type: "success" });
-        // Deduct locally for instant UI update
         setCredits(prev => prev - COST_PER_GENERATION);
+        removeImage();
         // Note: isLoading stays true during polling
       } else {
         throw new Error("No job ID returned");
@@ -210,7 +244,42 @@ export default function Home() {
           </div>
         </div>
 
-
+        <div className={styles.formGroup}>
+          <label className={styles.label}>3. Add a reference image (optional)</label>
+          {!referenceImagePreview ? (
+            <div
+              className={`${styles.dropZone} ${isDragging ? styles.dropZoneActive : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleImageDrop}
+              onClick={() => !isLoading && document.getElementById('refImageInput').click()}
+            >
+              <div className={styles.dropZoneIcon}>🖼️</div>
+              <p className={styles.dropZoneText}>Drag & drop an image here, or click to browse</p>
+              <p className={styles.dropZoneHint}>PNG, JPG, WEBP • Max 3MB</p>
+              <input
+                id="refImageInput"
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(e) => handleImageSelect(e.target.files[0])}
+                disabled={isLoading}
+              />
+            </div>
+          ) : (
+            <div className={styles.imagePreviewWrapper}>
+              <img src={referenceImagePreview} alt="Reference" className={styles.imagePreview} />
+              <button
+                type="button"
+                className={styles.removeImageBtn}
+                onClick={removeImage}
+                disabled={isLoading}
+              >
+                ✕ Remove
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className={styles.submitWrapper}>
           <button 
