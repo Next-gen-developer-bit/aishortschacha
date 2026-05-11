@@ -2,36 +2,54 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/utils/supabase/client";
 import styles from "../login/page.module.css";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState({ text: "", type: "" });
   const router = useRouter();
-  const supabase = createClient();
 
   const handleReset = async (e) => {
     e.preventDefault();
     setMessage({ text: "", type: "" });
+
+    if (password !== confirmPassword) {
+      setMessage({ text: "Passwords do not match.", type: "error" });
+      return;
+    }
+
+    if (password.length < 6) {
+      setMessage({ text: "Password must be at least 6 characters.", type: "error" });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
-      // Pass the callback URL dynamically so it works on localhost AND vercel
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/api/auth/callback?next=/update-password`,
+      const res = await fetch("/api/auth/direct-reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, newPassword: password }),
       });
 
-      if (error) {
-        throw error;
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to reset password");
       }
 
       setMessage({ 
-        text: "Success! Check your email for the reset link.", 
+        text: "Success! Your password has been reset. You can now log in.", 
         type: "success" 
       });
-      setEmail("");
+      
+      setTimeout(() => {
+        router.push("/login");
+      }, 2000);
+      
     } catch (error) {
       setMessage({ text: error.message, type: "error" });
     } finally {
@@ -43,7 +61,7 @@ export default function ForgotPasswordPage() {
     <main className={styles.container}>
       <div className={styles.authCard}>
         <h1 className={styles.title}>Reset Password</h1>
-        <p className={styles.subtitle}>We will send a secure recovery link to your email.</p>
+        <p className={styles.subtitle}>Enter your email and new password.</p>
 
         <form onSubmit={handleReset}>
           <div className={styles.formGroup}>
@@ -60,13 +78,41 @@ export default function ForgotPasswordPage() {
             />
           </div>
 
+          <div className={styles.formGroup}>
+            <label className={styles.label} htmlFor="password">New Password</label>
+            <input
+              id="password"
+              type="password"
+              required
+              className={styles.input}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={isLoading}
+              placeholder="••••••••"
+            />
+          </div>
+
+          <div className={styles.formGroup}>
+            <label className={styles.label} htmlFor="confirmPassword">Confirm Password</label>
+            <input
+              id="confirmPassword"
+              type="password"
+              required
+              className={styles.input}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={isLoading}
+              placeholder="••••••••"
+            />
+          </div>
+
           <div className={styles.buttonGroup}>
             <button 
               type="submit" 
               className={styles.primaryBtn} 
               disabled={isLoading}
             >
-              Send Reset Link
+              Reset Password
             </button>
             <button 
               type="button" 
