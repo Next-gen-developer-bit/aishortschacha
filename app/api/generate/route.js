@@ -75,7 +75,7 @@ export async function POST(request) {
     const timeout = setTimeout(() => controller.abort(), 8000);
 
     try {
-      const n8nResponse = await fetch("https://babbudev123321.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7", {
+      const n8nResponse = await fetch("https://avital1.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
