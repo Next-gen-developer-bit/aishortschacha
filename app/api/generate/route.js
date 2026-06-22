@@ -62,6 +62,10 @@ export async function POST(request) {
       return NextResponse.json({ error: "Failed to create generation job" }, { status: 500 });
     }
 
+    const n8nWebhookUrl =
+      process.env.N8N_WEBHOOK_URL ||
+      "https://avital1.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7";
+
     // Call the n8n webhook from the server (fire-and-forget with timeout)
     const n8nPayload = {
       ...body,
@@ -75,7 +79,7 @@ export async function POST(request) {
     const timeout = setTimeout(() => controller.abort(), 8000);
 
     try {
-      const n8nResponse = await fetch("https://avital1.app.n8n.cloud/webhook/8a6b1cc5-950b-4c7a-9876-5d5c43158bc7", {
+      const n8nResponse = await fetch(n8nWebhookUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -86,10 +90,25 @@ export async function POST(request) {
       clearTimeout(timeout);
 
       if (!n8nResponse.ok) {
+        const n8nErrorBody = await n8nResponse.text().catch(() => "");
+        console.error("n8n webhook error:", n8nResponse.status, n8nErrorBody);
+
         // Refund credits if n8n explicitly rejects the request
         await serviceSupabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
         await serviceSupabase.from('video_generations').update({ status: 'failed' }).eq('id', job.id);
-        return NextResponse.json({ error: "Failed from n8n" }, { status: n8nResponse.status });
+
+        const isWebhookNotRegistered =
+          n8nResponse.status === 404 ||
+          n8nErrorBody.includes("is not registered");
+
+        return NextResponse.json(
+          {
+            error: isWebhookNotRegistered
+              ? "Video generation service is unavailable. Please ensure the n8n workflow is active."
+              : "Failed from n8n",
+          },
+          { status: 502 }
+        );
       }
     } catch (fetchError) {
       clearTimeout(timeout);
